@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Corvo Voxel 3D — Visualizador Pixel Art Retrô</title>
+  <meta name="description" content="Modelo 3D estilizado de um corvo em voxel art / pixel art 3D, com bico curvado e penas em blocos. Visualize, troque paletas e exporte em GLB para jogos retrô." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-0: #07060d;
+      --bg-1: #120d24;
+      --bg-2: #2a1f4a;
+      --glass: rgba(22, 17, 40, 0.55);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --text: #ece8ff;
+      --muted: #9a92bd;
+      --accent: #b18cff;
+      --accent-2: #ffcf6b;
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(ellipse 60% 50% at 50% 35%, var(--bg-2) 0%, transparent 70%),
+        radial-gradient(ellipse 80% 60% at 80% 100%, #1b2a4a55 0%, transparent 70%),
+        linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
+    }
+    #viewport { position: fixed; inset: 0; }
+    #viewport canvas { display: block; cursor: grab; }
+    #viewport canvas:active { cursor: grabbing; }
+
+    /* Scanlines retrô sutis */
+    body::after {
+      content: ''; position: fixed; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 3px);
+      mix-blend-mode: overlay;
+    }
+
+    .hud-title {
+      position: fixed; top: 28px; left: 32px; pointer-events: none;
+      animation: fadeDown .9s cubic-bezier(.2,.8,.2,1) both;
+    }
+    .hud-title h1 {
+      font-family: 'Press Start 2P', monospace;
+      font-size: clamp(20px, 3vw, 34px);
+      letter-spacing: 2px;
+      line-height: 1.3;
+      text-shadow: 0 0 24px rgba(177, 140, 255, 0.45), 3px 3px 0 #000;
+    }
+    .hud-title h1 span {
+      display: block;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      text-shadow: none;
+      filter: drop-shadow(3px 3px 0 #000);
+    }
+    .hud-title p { margin-top: 12px; color: var(--muted); font-size: 13px; letter-spacing: .3px; }
+
+    .panel {
+      position: fixed; top: 24px; right: 24px; width: 290px;
+      max-height: calc(100% - 48px); overflow-y: auto;
+      background: var(--glass);
+      backdrop-filter: blur(16px) saturate(140%);
+      -webkit-backdrop-filter: blur(16px) saturate(140%);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.05);
+      animation: fadeLeft .9s .15s cubic-bezier(.2,.8,.2,1) both;
+    }
+    .panel::-webkit-scrollbar { width: 6px; }
+    .panel::-webkit-scrollbar-thumb { background: #ffffff22; border-radius: 6px; }
+
+    .section + .section { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--glass-border); }
+    .section h2 {
+      font-family: 'Press Start 2P', monospace; font-size: 9px; letter-spacing: 1.5px;
+      color: var(--accent); margin-bottom: 12px; text-transform: uppercase;
+    }
+
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat {
+      background: rgba(255,255,255,.04); border: 1px solid var(--glass-border);
+      border-radius: 12px; padding: 10px 12px;
+    }
+    .stat b { display: block; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .stat small { color: var(--muted); font-size: 11px; }
+
+    .toggle {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 0; font-size: 13px; cursor: pointer; user-select: none;
+    }
+    .toggle input { display: none; }
+    .switch {
+      width: 38px; height: 22px; border-radius: 22px; position: relative;
+      background: rgba(255,255,255,.1); transition: background .25s;
+      border: 1px solid var(--glass-border);
+    }
+    .switch::after {
+      content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+      border-radius: 4px; background: #d9d3f5; transition: transform .25s cubic-bezier(.3,1.4,.5,1), background .25s;
+    }
+    .toggle input:checked + .switch { background: linear-gradient(90deg, #7b5cff, var(--accent)); }
+    .toggle input:checked + .switch::after { transform: translateX(16px); background: #fff; }
+
+    .palettes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .pal-btn {
+      background: rgba(255,255,255,.04); border: 1px solid var(--glass-border);
+      border-radius: 12px; padding: 8px 6px; color: var(--text); cursor: pointer;
+      font: 500 11px 'Inter', sans-serif; transition: transform .2s, border-color .2s, background .2s;
+    }
+    .pal-btn .sw { display: flex; height: 14px; border-radius: 4px; overflow: hidden; margin-bottom: 6px; }
+    .pal-btn .sw i { flex: 1; }
+    .pal-btn:hover { transform: translateY(-2px); background: rgba(255,255,255,.08); }
+    .pal-btn.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset, 0 0 18px rgba(177,140,255,.25); }
+
+    .btn-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .btn {
+      background: rgba(255,255,255,.05); border: 1px solid var(--glass-border);
+      color: var(--text); border-radius: 10px; padding: 9px 6px; cursor: pointer;
+      font: 600 11px 'Inter', sans-serif; transition: all .2s;
+    }
+    .btn:hover { background: rgba(177,140,255,.18); border-color: #b18cff66; transform: translateY(-1px); }
+    .btn:active { transform: translateY(1px); }
+    .btn.primary {
+      width: 100%; padding: 12px; font-size: 13px; margin-top: 8px;
+      background: linear-gradient(135deg, #7b5cff, #b18cff 60%, #ffcf6b);
+      border: none; color: #120d24; font-weight: 700;
+      box-shadow: 0 8px 24px rgba(123, 92, 255, .35);
+    }
+    .btn.primary:hover { filter: brightness(1.08); box-shadow: 0 10px 30px rgba(123, 92, 255, .5); }
+    .btn.ghost { width: 100%; padding: 11px; font-size: 13px; }
+
+    .hint {
+      position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+      background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border); border-radius: 999px;
+      padding: 10px 20px; font-size: 12px; color: var(--muted); white-space: nowrap;
+      animation: fadeUp .9s .3s cubic-bezier(.2,.8,.2,1) both;
+    }
+    .hint kbd {
+      font-family: 'Press Start 2P', monospace; font-size: 8px; color: var(--accent-2);
+      margin: 0 4px;
+    }
+
+    #loader {
+      position: fixed; inset: 0; display: grid; place-items: center; background: var(--bg-0);
+      z-index: 10; transition: opacity .6s ease, visibility .6s;
+      font-family: 'Press Start 2P', monospace; font-size: 12px; color: var(--accent);
+    }
+    #loader.hide { opacity: 0; visibility: hidden; }
+    #loader .dots::after { content: ''; animation: dots 1.2s steps(4) infinite; }
+
+    .toast {
+      position: fixed; bottom: 76px; left: 50%; transform: translate(-50%, 20px); opacity: 0;
+      background: linear-gradient(135deg, #7b5cff, #b18cff); color: #120d24; font-weight: 700;
+      padding: 10px 18px; border-radius: 12px; font-size: 13px; transition: all .35s cubic-bezier(.2,.8,.2,1);
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    @keyframes fadeDown { from { opacity: 0; transform: translateY(-16px); } }
+    @keyframes fadeLeft { from { opacity: 0; transform: translateX(24px); } }
+    @keyframes fadeUp { from { opacity: 0; transform: translate(-50%, 16px); } }
+    @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+
+    @media (max-width: 760px) {
+      .panel { top: auto; bottom: 70px; right: 12px; left: 12px; width: auto; max-height: 42%; }
+      .hud-title { top: 16px; left: 16px; }
+      .hint { font-size: 10px; }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="loader"><span>CARREGANDO CORVO<span class="dots"></span></span></div>
+  <main id="viewport" aria-label="Visualização 3D do corvo voxel"></main>
+
+  <header class="hud-title">
+    <h1>CORVO<span>VOXEL</span></h1>
+    <p>Pixel art 3D · pose estática · pronto para jogos retrô</p>
+  </header>
+
+  <aside class="panel" aria-label="Controles">
+    <section class="section">
+      <h2>Modelo</h2>
+      <div class="stats">
+        <div class="stat"><b id="stat-voxels">0</b><small>voxels</small></div>
+        <div class="stat"><b id="stat-tris">0</b><small>triângulos</small></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Visual</h2>
+      <label class="toggle" for="tg-rotate">Auto-rotação <input type="checkbox" id="tg-rotate" checked /><span class="switch"></span></label>
+      <label class="toggle" for="tg-grid">Grade de pixels <input type="checkbox" id="tg-grid" checked /><span class="switch"></span></label>
+      <label class="toggle" for="tg-ao">Oclusão (AO) <input type="checkbox" id="tg-ao" checked /><span class="switch"></span></label>
+      <label class="toggle" for="tg-branch">Galho <input type="checkbox" id="tg-branch" checked /><span class="switch"></span></label>
+    </section>
+
+    <section class="section">
+      <h2>Paleta</h2>
+      <div class="palettes" id="palettes"></div>
+    </section>
+
+    <section class="section">
+      <h2>Câmera</h2>
+      <div class="btn-row">
+        <button class="btn" id="cam-34">3/4</button>
+        <button class="btn" id="cam-front">Frente</button>
+        <button class="btn" id="cam-side">Lado</button>
+        <button class="btn" id="cam-top">Topo</button>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Ações</h2>
+      <button class="btn ghost" id="btn-rebuild">▶ Reconstruir voxels</button>
+      <button class="btn primary" id="btn-export">⬇ Exportar .GLB</button>
+    </section>
+  </aside>
+
+  <footer class="hint"><kbd>ARRASTE</kbd> girar · <kbd>SCROLL</kbd> zoom · <kbd>BOTÃO DIR.</kbd> mover</footer>
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+
+    /* =========================================================
+       PALETAS
+       ========================================================= */
+    const BARK = { BARK: '#5a3a21', BARK2: '#7a5432', BARK3: '#3a2414', LEAF: '#6a9a3f', LEAF2: '#3f6b2a' };
+    const PALETTES = {
+      classico: {
+        name: 'Clássico',
+        K0: '#0b0b10', K1: '#17171f', K2: '#24273b', K3: '#323d63', K4: '#4a3672',
+        BEAK: '#2a2a31', BEAK2: '#43434d', EYE: '#d8cfb0', PUPIL: '#020202',
+        LEG: '#3b3b44', CLAW: '#141418', ...BARK
+      },
+      iridescente: {
+        name: 'Iridescente',
+        K0: '#090b14', K1: '#121a2e', K2: '#1d2f57', K3: '#2c6496', K4: '#6a3fb0',
+        BEAK: '#22232b', BEAK2: '#3b3d4a', EYE: '#ffcf6b', PUPIL: '#050505',
+        LEG: '#353845', CLAW: '#121318', ...BARK
+      },
+      albino: {
+        name: 'Albino',
+        K0: '#cfcac0', K1: '#e6e2d9', K2: '#f4f1ea', K3: '#ffffff', K4: '#eadfd0',
+        BEAK: '#e3b29e', BEAK2: '#f0cbb9', EYE: '#ff9a9a', PUPIL: '#b81f36',
+        LEG: '#e0a595', CLAW: '#c4877a', ...BARK
+      }
+    };
+    let paletteKey = 'classico';
+
+    /* =========================================================
+       GERADOR DO CORVO (mesma lógica do script Blender)
+       Eixos: X = largura, Y = cima, Z = frente (cabeça em +Z)
+       ========================================================= */
+    const mod = (a, n) => ((a % n) + n) % n;
+    const rd = v => Math.floor(v + 0.5);
+    const rnd = (x, y, z) => (((x + 50) * 92821 + (y + 50) * 68917 + (z + 50) * 31337) % 997) / 997;
+    const key = (x, y, z) => `${x},${y},${z}`;
+
+    function generateCrow() {
+      const vox = new Map();
+      const set = (x, y, z, c) => vox.set(key(x, y, z), { x, y, z, c });
+      const feather = (x, y, z) => { const r = rnd(x, y, z); return r < 0.35 ? 'K0' : r < 0.75 ? 'K1' : r < 0.93 ? 'K2' : 'K3'; };
+      const ell = (cx, cy, cz, rx, ry, rz, fn) => {
+        for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++)
+          for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++)
+            for (let z = Math.floor(cz - rz); z <= Math.ceil(cz + rz); z++) {
+              const d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 + ((z - cz) / rz) ** 2;
+              if (d <= 1) set(x, y, z, fn(x, y, z));
+            }
+      };
+
+      // --- Corpo
+      ell(0, 9, 0, 4, 4, 6, (x, y, z) => {
+        if (z > 1 && y < 9) return mod(x + y + z, 2) === 0 ? 'K2' : 'K1'; // peito em "escamas"
+        if (y >= 12) return rnd(x, y, z) < 0.5 ? 'K3' : 'K2';             // dorso brilhante
+        return feather(x, y, z);
+      });
+
+      // --- Pescoço e cabeça
+      const headFn = (x, y, z) => {
+        if (y >= 17) { const r = rnd(x, y, z); return r < 0.5 ? 'K3' : r < 0.7 ? 'K4' : 'K2'; }
+        return feather(x, y, z);
+      };
+      ell(0, 12.5, 3.5, 3, 3, 3, headFn);
+      ell(0, 15, 5.5, 3.3, 3.3, 3.3, headFn);
+
+      // --- Penas da garganta (hackles)
+      for (let x = -1; x <= 1; x++) { set(x, 12, 8, 'K1'); set(x, 11, 7, mod(x, 2) ? 'K0' : 'K1'); }
+      set(0, 10, 7, 'K0');
+      // cerdas nasais sobre o bico
+      set(0, 16, 9, 'K1');
+
+      // --- Bico curvado (superior) + mandíbula (inferior)
+      for (let x = -1; x <= 1; x++) {
+        set(x, 15, 9, 'BEAK'); set(x, 14, 9, 'BEAK'); set(x, 14, 10, 'BEAK');
+        set(x, 13, 9, 'BEAK2');
+      }
+      set(0, 15, 10, 'BEAK');
+      set(0, 15, 11, 'BEAK'); set(0, 14, 11, 'BEAK');
+      set(0, 14, 12, 'BEAK'); set(0, 13, 12, 'BEAK');
+      set(0, 13, 13, 'BEAK'); set(0, 12, 13, 'BEAK');   // gancho da ponta
+      set(0, 13, 10, 'BEAK2'); set(0, 13, 11, 'BEAK2');
+
+      // --- Olhos
+      for (const s of [-1, 1]) { set(3 * s, 16, 6, 'PUPIL'); set(3 * s, 16, 5, 'EYE'); }
+
+      // --- Asas (2 camadas, penas primárias em listras e pontas serrilhadas)
+      for (const s of [-1, 1]) {
+        for (let z = 4; z >= -12; z--) for (let y = 5; y <= 14; y++) {
+          const t = (4 - z) / 14;
+          const yTop = rd(12.5 - 3 * t), yBot = rd(6.5 + 2 * t);
+          if (y < yBot || y > yTop) continue;
+          const zMin = -9 - mod(y, 3);
+          if (z < zMin) continue;
+          if (z === 4 && (y === yTop || y === yBot)) continue;
+          let c;
+          if (z === zMin) c = 'K0';
+          else if (z <= -2) c = mod(y, 2) === 0 ? 'K1' : 'K0';
+          else if (y >= yTop - 1) c = rnd(4 * s, y, z) < 0.5 ? 'K3' : 'K2';
+          else c = feather(4 * s, y, z);
+          set(4 * s, y, z, c);
+          if (y > yBot && y < yTop && z < 3 && z > zMin + 1) {
+            const c2 = mod(y + z, 3) === 0 ? 'K3' : (mod(z, 2) ? 'K1' : 'K2');
+            set(5 * s, y, z, c2);
+          }
+        }
+      }
+
+      // --- Cauda em leque
+      for (let z = -5; z >= -15; z--) {
+        const t = (-5 - z) / 10;
+        const yc = rd(8 - 4 * t);
+        const w = 1 + rd(2 * t);
+        for (let x = -w; x <= w; x++) {
+          const zEnd = -14 + mod(x, 2);
+          if (z < zEnd) continue;
+          const c = (x === -w || x === w) ? 'K2' : (mod(x, 2) ? 'K1' : 'K0');
+          set(x, yc, z, c);
+          if (t < 0.5) set(x, yc + 1, z, 'K1');
+        }
+      }
+
+      // --- Pernas e pés
+      for (const s of [-1, 1]) {
+        const x = 2 * s;
+        set(x, 5, 0, 'K1'); set(x, 5, 1, 'K1'); set(x, 4, 1, 'K0');   // coxa emplumada
+        set(x, 3, 1, 'LEG'); set(x, 2, 1, 'LEG');
+        set(x, 1, 1, 'LEG'); set(x, 1, 2, 'LEG'); set(x, 1, 3, 'LEG'); set(x, 0, 3, 'CLAW');
+        set(x, 1, 0, 'LEG'); set(x, 1, -1, 'LEG'); set(x, 0, -1, 'CLAW');
+        set(x - s, 1, 2, 'LEG'); set(x - s, 1, 3, 'CLAW');
+      }
+
+      // --- Galho
+      for (let x = -11; x <= 11; x++) for (let y = -3; y <= 0; y++) for (let z = 0; z <= 3; z++) {
+        if ((y === -3 || y === 0) && (z === 0 || z === 3)) continue;
+        if (vox.has(key(x, y, z))) continue;
+        let c;
+        if (Math.abs(x) === 11) c = 'BARK2';
+        else if (mod(x, 5) === 0) c = 'BARK3';
+        else { const r = rnd(x, y, z); c = r < 0.2 ? 'BARK3' : r < 0.6 ? 'BARK' : 'BARK2'; }
+        set(x, y, z, c);
+      }
+      set(8, 1, 1, 'BARK'); set(9, 2, 1, 'BARK'); set(9, 3, 1, 'BARK2'); set(10, 4, 1, 'BARK2');
+      set(10, 5, 1, 'LEAF'); set(11, 5, 1, 'LEAF'); set(10, 6, 1, 'LEAF2'); set(11, 5, 2, 'LEAF2'); set(10, 5, 0, 'LEAF');
+      set(-9, 1, 2, 'BARK2'); set(-10, 2, 2, 'BARK2');
+      set(-10, 3, 2, 'LEAF'); set(-11, 3, 2, 'LEAF2'); set(-10, 3, 3, 'LEAF2');
+
+      return [...vox.values()];
+    }
+
+    /* =========================================================
+       MALHA OTIMIZADA (só faces visíveis + AO por vértice)
+       ========================================================= */
+    const FACES = [
+      { dir: [-1, 0, 0], corners: [[0, 1, 0], [0, 0, 0], [0, 1, 1], [0, 0, 1]] },
+      { dir: [ 1, 0, 0], corners: [[1, 1, 1], [1, 0, 1], [1, 1, 0], [1, 0, 0]] },
+      { dir: [ 0,-1, 0], corners: [[1, 0, 1], [0, 0, 1], [1, 0, 0], [0, 0, 0]] },
+      { dir: [ 0, 1, 0], corners: [[0, 1, 1], [1, 1, 1], [0, 1, 0], [1, 1, 0]] },
+      { dir: [ 0, 0,-1], corners: [[1, 0, 0], [0, 0, 0], [1, 1, 0], [0, 1, 0]] },
+      { dir: [ 0, 0, 1], corners: [[0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]] },
+    ];
+    const UVS = [[0, 0], [1, 0], [0, 1], [1, 1]];
+    const AO_LEVELS = [0.4, 0.62, 0.82, 1.0];
+
+    function buildGeometry(list, palette, useAO) {
+      const occ = new Set(list.map(v => key(v.x, v.y, v.z)));
+      const has = (p) => occ.has(key(p[0], p[1], p[2]));
+      const pos = [], nor = [], col = [], uv = [], idx = [];
+      const c = new THREE.Color();
+      for (const v of list) {
+        c.set(palette[v.c]);
+        for (const f of FACES) {
+          const [dx, dy, dz] = f.dir;
+          if (has([v.x + dx, v.y + dy, v.z + dz])) continue;
+          const axis = dx ? 0 : dy ? 1 : 2;
+          const [u, w] = [0, 1, 2].filter(a => a !== axis);
+          const base = [v.x + dx, v.y + dy, v.z + dz];
+          const n = pos.length / 3;
+          const aos = [];
+          f.corners.forEach((cn, i) => {
+            pos.push(v.x + cn[0] - 0.5, v.y + cn[1] - 0.5, v.z + cn[2] - 0.5);
+            nor.push(dx, dy, dz);
+            uv.push(...UVS[i]);
+            let ao = 3;
+            if (useAO) {
+              const su = cn[u] ? 1 : -1, sw = cn[w] ? 1 : -1;
+              const p1 = [...base]; p1[u] += su;
+              const p2 = [...base]; p2[w] += sw;
+              const p3 = [...base]; p3[u] += su; p3[w] += sw;
+              const a = has(p1) ? 1 : 0, b = has(p2) ? 1 : 0, d = has(p3) ? 1 : 0;
+              ao = (a && b) ? 0 : 3 - (a + b + d);
+            }
+            aos.push(ao);
+            const k = AO_LEVELS[ao];
+            col.push(c.r * k, c.g * k, c.b * k);
+          });
+          if (aos[0] + aos[3] > aos[1] + aos[2]) idx.push(n, n + 1, n + 3, n, n + 3, n + 2);
+          else idx.push(n, n + 1, n + 2, n + 2, n + 1, n + 3);
+        }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      g.computeBoundingSphere();
+      return g;
+    }
+
+    /* =========================================================
+       CENA
+       ========================================================= */
+    const container = document.getElementById('viewport');
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.3;
+    container.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x120d24, 70, 140);
+
+    const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 500);
+    camera.position.set(34, 14, 38);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 1, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.07;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.9;
+    controls.minDistance = 14;
+    controls.maxDistance = 110;
+    controls.maxPolarAngle = Math.PI * 0.62;
+
+    // Luzes: chave quente, contorno azulado (lua), preenchimento violeta
+    scene.add(new THREE.HemisphereLight(0x9a86ff, 0x1a1028, 1.1));
+    const key_ = new THREE.DirectionalLight(0xffe2b8, 2.6);
+    key_.position.set(22, 38, 20);
+    key_.castShadow = true;
+    key_.shadow.mapSize.set(2048, 2048);
+    Object.assign(key_.shadow.camera, { left: -28, right: 28, top: 28, bottom: -28, near: 1, far: 120 });
+    key_.shadow.bias = -0.0006;
+    key_.shadow.normalBias = 0.02;
+    scene.add(key_);
+    const rim = new THREE.DirectionalLight(0x7aa8ff, 2.2);
+    rim.position.set(-28, 14, -24);
+    scene.add(rim);
+    const fill = new THREE.DirectionalLight(0xc19bff, 0.6);
+    fill.position.set(-10, -6, 30);
+    scene.add(fill);
+
+    // Chão: sombra + grade retrô + anel brilhante
+    const GROUND_Y = -12;
+    const shadowGround = new THREE.Mesh(new THREE.CircleGeometry(30, 64), new THREE.ShadowMaterial({ opacity: 0.45 }));
+    shadowGround.rotation.x = -Math.PI / 2; shadowGround.position.y = GROUND_Y; shadowGround.receiveShadow = true;
+    scene.add(shadowGround);
+    const grid = new THREE.GridHelper(60, 60, 0x6b56c0, 0x2a2246);
+    grid.position.y = GROUND_Y + 0.01; grid.material.transparent = true; grid.material.opacity = 0.22;
+    scene.add(grid);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(17, 17.6, 96),
+      new THREE.MeshBasicMaterial({ color: 0xb18cff, transparent: true, opacity: 0.35, side: THREE.DoubleSide }));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = GROUND_Y + 0.02;
+    scene.add(ring);
+
+    // Partículas flutuantes
+    const PCOUNT = 220;
+    const pGeo = new THREE.BufferGeometry();
+    const pPos = new Float32Array(PCOUNT * 3);
+    for (let i = 0; i < PCOUNT; i++) {
+      pPos[i * 3] = (Math.random() - 0.5) * 80;
+      pPos[i * 3 + 1] = GROUND_Y + Math.random() * 40;
+      pPos[i * 3 + 2] = (Math.random() - 0.5) * 80;
+    }
+    pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+    const particles = new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0xb9a4ff, size: 0.28, transparent: true, opacity: 0.55, depthWrite: false }));
+    scene.add(particles);
+
+    // Textura "grade de pixel" (borda escura em cada face do voxel)
+    function makeGridTexture() {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 32;
+      const g = cv.getContext('2d');
+      g.fillStyle = '#ffffff'; g.fillRect(0, 0, 32, 32);
+      g.fillStyle = '#9b9b9b'; g.fillRect(0, 0, 32, 2); g.fillRect(0, 30, 32, 2); g.fillRect(0, 0, 2, 32); g.fillRect(30, 0, 2, 32);
+      g.fillStyle = '#e6e6e6'; g.fillRect(2, 2, 28, 1); g.fillRect(2, 2, 1, 28);
+      const t = new THREE.CanvasTexture(cv);
+      t.magFilter = THREE.NearestFilter; t.minFilter = THREE.LinearMipmapLinearFilter;
+      t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+      return t;
+    }
+    const gridTex = makeGridTexture();
+
+    const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.12, map: gridTex });
+    const instMaterial = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.12, map: gridTex });
+
+    const root = new THREE.Group();
+    root.position.set(0, -8, 1);
+    scene.add(root);
+
+    let crowMesh = null, branchMesh = null, instMesh = null;
+    let voxels = [], animList = [];
+    let building = false, buildStart = 0, buildDuration = 0;
+
+    const isBranch = v => v.c.startsWith('BARK') || v.c.startsWith('LEAF');
+    const ui = {
+      rotate: document.getElementById('tg-rotate'),
+      grid: document.getElementById('tg-grid'),
+      ao: document.getElementById('tg-ao'),
+      branch: document.getElementById('tg-branch'),
+    };
+
+    function disposeMesh(m) { if (!m) return; root.remove(m); m.geometry.dispose(); }
+
+    function rebuild(animate = true) {
+      voxels = generateCrow();
+      const pal = PALETTES[paletteKey];
+      const crowV = voxels.filter(v => !isBranch(v));
+      const branchV = voxels.filter(isBranch);
+
+      disposeMesh(crowMesh); disposeMesh(branchMesh); disposeMesh(instMesh); instMesh = null;
+      crowMesh = new THREE.Mesh(buildGeometry(crowV, pal, ui.ao.checked), material);
+      branchMesh = new THREE.Mesh(buildGeometry(branchV, pal, ui.ao.checked), material);
+      for (const m of [crowMesh, branchMesh]) { m.castShadow = m.receiveShadow = true; root.add(m); }
+      branchMesh.visible = ui.branch.checked;
+
+      const tris = (crowMesh.geometry.index.count + (ui.branch.checked ? branchMesh.geometry.index.count : 0)) / 3;
+      animateNumber('stat-voxels', crowV.length + (ui.branch.checked ? branchV.length : 0));
+      animateNumber('stat-tris', tris);
+
+      if (!animate) return;
+
+      // Animação de montagem com InstancedMesh (somente voxels visíveis)
+      const occ = new Set(voxels.map(v => key(v.x, v.y, v.z)));
+      const src = (ui.branch.checked ? voxels : crowV).filter(v =>
+        FACES.some(f => !occ.has(key(v.x + f.dir[0], v.y + f.dir[1], v.z + f.dir[2]))));
+      const minY = Math.min(...src.map(v => v.y)), maxY = Math.max(...src.map(v => v.y));
+      animList = src.map(v => ({ ...v, delay: ((v.y - minY) / (maxY - minY)) * 1.4 + rnd(v.x, v.y, v.z) * 0.35 }));
+      buildDuration = Math.max(...animList.map(a => a.delay)) + 0.6;
+
+      instMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), instMaterial, animList.length);
+      instMesh.castShadow = true;
+      const c = new THREE.Color();
+      animList.forEach((a, i) => instMesh.setColorAt(i, c.set(pal[a.c])));
+      instMesh.instanceColor.needsUpdate = true;
+      root.add(instMesh);
+      crowMesh.visible = false; branchMesh.visible = false;
+      building = true; buildStart = performance.now() / 1000;
+      updateInstances(0);
+    }
+
+    const dummy = new THREE.Object3D();
+    const easeOutBack = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2; };
+    const easeOutCubic = t => 1 - (1 - t) ** 3;
+    function updateInstances(elapsed) {
+      animList.forEach((a, i) => {
+        const t = THREE.MathUtils.clamp((elapsed - a.delay) / 0.6, 0, 1);
+        dummy.position.set(a.x, a.y + (1 - easeOutCubic(t)) * 12, a.z);
+        dummy.scale.setScalar(Math.max(0.0001, easeOutBack(t)));
+        dummy.updateMatrix();
+        instMesh.setMatrixAt(i, dummy.matrix);
+      });
+      instMesh.instanceMatrix.needsUpdate = true;
+    }
+    function finishBuild() {
+      building = false;
+      disposeMesh(instMesh); instMesh = null;
+      crowMesh.visible = true; branchMesh.visible = ui.branch.checked;
+    }
+
+    function animateNumber(id, target) {
+      const el = document.getElementById(id);
+      const from = parseInt(el.textContent.replace(/\D/g, '')) || 0;
+      const t0 = performance.now();
+      const step = (now) => {
+        const t = Math.min(1, (now - t0) / 700);
+        el.textContent = Math.round(from + (target - from) * easeOutCubic(t)).toLocaleString('pt-BR');
+        if (t < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    }
+
+    /* =========================================================
+       UI
+       ========================================================= */
+    const palWrap = document.getElementById('palettes');
+    for (const [k, p] of Object.entries(PALETTES)) {
+      const b = document.createElement('button');
+      b.className = 'pal-btn' + (k === paletteKey ? ' active' : '');
+      b.id = `pal-${k}`;
+      b.innerHTML = `<div class="sw">${['K0', 'K2', 'K3', 'K4', 'BEAK2', 'EYE'].map(c => `<i style="background:${p[c]}"></i>`).join('')}</div>${p.name}`;
+      b.onclick = () => {
+        paletteKey = k;
+        palWrap.querySelectorAll('.pal-btn').forEach(x => x.classList.toggle('active', x === b));
+        if (building) finishBuild();
+        rebuild(false);
+      };
+      palWrap.appendChild(b);
+    }
+
+    ui.rotate.onchange = () => controls.autoRotate = ui.rotate.checked;
+    ui.grid.onchange = () => {
+      material.map = instMaterial.map = ui.grid.checked ? gridTex : null;
+      material.needsUpdate = instMaterial.needsUpdate = true;
+    };
+    ui.ao.onchange = () => { if (building) finishBuild(); rebuild(false); };
+    ui.branch.onchange = () => {
+      if (building) finishBuild();
+      rebuild(false);
+    };
+
+    // Transições de câmera
+    let camTarget = null;
+    const views = {
+      'cam-34': [34, 14, 38], 'cam-front': [0, 6, 50], 'cam-side': [50, 6, 0], 'cam-top': [0.01, 56, 4],
+    };
+    for (const [id, p] of Object.entries(views)) {
+      document.getElementById(id).onclick = () => {
+        camTarget = new THREE.Vector3(...p);
+        ui.rotate.checked = false; controls.autoRotate = false;
+      };
+    }
+
+    document.getElementById('btn-rebuild').onclick = () => rebuild(true);
+
+    // Exportar GLB (malha com cores por vértice + AO embutido)
+    document.getElementById('btn-export').onclick = () => {
+      if (building) finishBuild();
+      const g = new THREE.Group();
+      const expMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 });
+      const c = new THREE.Mesh(crowMesh.geometry, expMat); c.name = 'Corvo_Voxel'; g.add(c);
+      if (ui.branch.checked) { const b = new THREE.Mesh(branchMesh.geometry, expMat); b.name = 'Galho_Voxel'; g.add(b); }
+      new GLTFExporter().parse(g, (res) => {
+        const url = URL.createObjectURL(new Blob([res], { type: 'model/gltf-binary' }));
+        const a = Object.assign(document.createElement('a'), { href: url, download: 'corvo_voxel.glb' });
+        a.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+        toast('corvo_voxel.glb exportado!');
+      }, (err) => { console.error(err); toast('Erro ao exportar'); }, { binary: true });
+    };
+
+    function toast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg; t.classList.add('show');
+      clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200);
+    }
+
+    /* =========================================================
+       LOOP
+       ========================================================= */
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    const clock = new THREE.Clock();
+    function loop() {
+      const dt = clock.getDelta();
+      const now = performance.now() / 1000;
+
+      if (building) {
+        const el = now - buildStart;
+        if (el >= buildDuration) finishBuild(); else updateInstances(el);
+      }
+
+      if (camTarget) {
+        camera.position.lerp(camTarget, 1 - Math.pow(0.002, dt));
+        if (camera.position.distanceTo(camTarget) < 0.05) camTarget = null;
+      }
+
+      const arr = particles.geometry.attributes.position.array;
+      for (let i = 0; i < PCOUNT; i++) {
+        arr[i * 3 + 1] += dt * (0.4 + (i % 7) * 0.08);
+        arr[i * 3] += Math.sin(now * 0.5 + i) * dt * 0.15;
+        if (arr[i * 3 + 1] > GROUND_Y + 40) arr[i * 3 + 1] = GROUND_Y;
+      }
+      particles.geometry.attributes.position.needsUpdate = true;
+      ring.material.opacity = 0.25 + Math.sin(now * 1.6) * 0.1;
+
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+
+    rebuild(true);
+    loop();
+    setTimeout(() => document.getElementById('loader').classList.add('hide'), 250);
+  </script>
+</body>
+</html>
